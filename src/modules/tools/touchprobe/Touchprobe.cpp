@@ -147,7 +147,7 @@ void Touchprobe::on_gcode_received(void* argument)
                 }
                 bool dir = steps[c-'X'] < 0;
                 // tmp is steps/mm, probe_rate in mm/s -> speed needs steps/s
-                this->steppers[c-'X']->set_speed(this->probe_rate * robot->actuators[c]->steps_per_mm);
+                this->steppers[c-'X']->set_step_rate(this->probe_rate * robot->actuators[c]->steps_per_mm);
                 this->steppers[c-'X']->move(dir,abs(steps[c-'X']));
             }
 

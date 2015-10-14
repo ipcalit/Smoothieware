@@ -31,7 +31,7 @@ class StepperMotor {
         void move_finished();
         StepperMotor* move( bool direction, unsigned int steps, float initial_speed= -1.0F);
         void signal_move_finished();
-        StepperMotor* set_speed( float speed );
+        StepperMotor* set_step_rate( float newrate );
         void set_moved_last_block(bool flg) { last_step_tick_valid= flg; }
         void update_exit_tick();
         void pause();

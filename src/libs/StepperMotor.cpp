@@ -155,7 +155,7 @@ StepperMotor* StepperMotor::move( bool direction, unsigned int steps, float init
 
     // Starting now we are moving
     if( steps > 0 ) {
-        if(initial_speed >= 0.0F) set_speed(initial_speed);
+        if(initial_speed >= 0.0F) set_step_rate(initial_speed);
         this->moving = true;
     } else {
         this->moving = false;
@@ -168,23 +168,23 @@ StepperMotor* StepperMotor::move( bool direction, unsigned int steps, float init
 // we need to make sure that we have a minimum speed here and that it fits the 32bit fixed point fx counters
 // Note nothing will really ever go as slow as the minimum speed here, it is just forced to avoid bad errors
 // fx_ticks_per_step is what actually sets the step rate, it is fixed point 18.14
-StepperMotor* StepperMotor::set_speed( float speed )
+StepperMotor* StepperMotor::set_step_rate( float newrate )
 {
-    if(speed < minimum_step_rate) {
-        speed= minimum_step_rate;
+    if(newrate < minimum_step_rate) {
+        newrate = minimum_step_rate;
     }
 
-    // if(speed <= 0.0F) { // we can't actually do 0 but we can get close, need to avoid divide by zero later on
+    // if(newrate <= 0.0F) { // we can't actually do 0 but we can get close, need to avoid divide by zero later on
     //     this->fx_ticks_per_step= 0xFFFFFFFFUL; // 0.381 steps/sec
     //     this->steps_per_second = THEKERNEL->step_ticker->get_frequency() / (this->fx_ticks_per_step >> fx_shift);
     //     return;
     // }
 
     // How many steps we must output per second
-    this->steps_per_second = speed;
+    this->steps_per_second = newrate;
 
     // set the new speed, NOTE this can be pre-empted by stepticker so the following write needs to be atomic
-    this->fx_ticks_per_step= floor(fx_increment * THEKERNEL->step_ticker->get_frequency() / speed);
+    this->fx_ticks_per_step= floor(fx_increment * THEKERNEL->step_ticker->get_frequency() / newrate);
     return this;
 }
 
