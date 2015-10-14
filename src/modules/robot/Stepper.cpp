@@ -310,13 +310,13 @@ void Stepper::set_step_events_per_second( float steps_per_second )
 
     // Instruct the stepper motors
     if( THEKERNEL->robot->alpha_stepper_motor->moving ) {
-        THEKERNEL->robot->alpha_stepper_motor->set_speed(isps * this->current_block->steps[ALPHA_STEPPER]);
+        THEKERNEL->robot->alpha_stepper_motor->set_step_rate(isps * this->current_block->steps[ALPHA_STEPPER]);
     }
     if( THEKERNEL->robot->beta_stepper_motor->moving  ) {
-        THEKERNEL->robot->beta_stepper_motor->set_speed(isps * this->current_block->steps[BETA_STEPPER]);
+        THEKERNEL->robot->beta_stepper_motor->set_step_rate(isps * this->current_block->steps[BETA_STEPPER]);
     }
     if( THEKERNEL->robot->gamma_stepper_motor->moving ) {
-        THEKERNEL->robot->gamma_stepper_motor->set_speed(isps * this->current_block->steps[GAMMA_STEPPER]);
+        THEKERNEL->robot->gamma_stepper_motor->set_step_rate(isps * this->current_block->steps[GAMMA_STEPPER]);
     }
 
     // Other modules might want to know the speed changed

@@ -800,7 +800,7 @@ void Endstops::acceleration_tick(void)
         if( current_rate > target_rate ){ current_rate = target_rate; }
 
         // steps per second
-        STEPPER[c]->set_speed(current_rate);
+        STEPPER[c]->set_step_rate(current_rate);
     }
 
     return;

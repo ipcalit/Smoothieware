@@ -631,7 +631,7 @@ void Extruder::on_block_begin(void *argument)
         }else{
             // SOLO
             uint32_t target_rate = floorf(this->feed_rate * this->steps_per_millimeter);
-            this->stepper_motor->set_speed(min( target_rate, rate_increase() ));  // start at first acceleration step
+            this->stepper_motor->set_step_rate(min( target_rate, rate_increase() ));  // start at first acceleration step
             this->stepper_motor->set_moved_last_block(false);
         }
 
@@ -669,7 +669,7 @@ void Extruder::acceleration_tick(void)
     if( current_rate < target_rate ) {
         current_rate = min( target_rate, current_rate + rate_increase() );
         // steps per second
-        this->stepper_motor->set_speed(current_rate);
+        this->stepper_motor->set_step_rate(current_rate);
     }
 
     return;
@@ -701,7 +701,7 @@ void Extruder::on_speed_change( void *argument )
     * or even : ( stepper steps per second ) * ( extruder steps / current block's steps )
     */
 
-    this->stepper_motor->set_speed(THEKERNEL->stepper->get_trapezoid_adjusted_rate() * (float)this->stepper_motor->get_steps_to_move() / (float)this->current_block->steps_event_count);
+    this->stepper_motor->set_step_rate(THEKERNEL->stepper->get_trapezoid_adjusted_rate() * (float)this->stepper_motor->get_steps_to_move() / (float)this->current_block->steps_event_count);
 }
 
 // When the stepper has finished it's move

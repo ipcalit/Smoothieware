@@ -379,7 +379,7 @@ void ZProbe::accelerate(int c)
     }
 
     // steps per second
-    STEPPER[c]->set_speed(current_rate);
+    STEPPER[c]->set_step_rate(current_rate);
 }
 
 // issue a coordinated move directly to robot, and return when done
