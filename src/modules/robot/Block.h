@@ -49,6 +49,8 @@ class Block {
         float          entry_speed;
         float          exit_speed;
         float          rate_delta;         // Nomber of steps to add to the speed for each acceleration tick
+        float          linear_rate_delta;   // linear increase of rate_delta
+        float          linear_rate_delta_increment;   // linear increase of rate_delta
         float          acceleration;       // the acceleratoin for this block
         unsigned int   initial_rate;       // Initial speed in steps per second
         unsigned int   final_rate;         // Final speed in steps per second

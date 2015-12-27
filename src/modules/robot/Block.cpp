@@ -124,6 +124,8 @@ void Block::calculate_trapezoid( float entryspeed, float exitspeed )
         plateau_steps = 0;
     }
     this->accelerate_until = accelerate_steps;
+    this->linear_rate_delta_increment = 4 * this->rate_delta / accelerate_steps; // make peak rate_delta twice as big as original rate_delta when reaching half of accelerate steps
+    this->linear_rate_delta = 0.000000001; // reset linear_rate_delta
     this->decelerate_after = accelerate_steps + plateau_steps;
 
     this->exit_speed = exitspeed;

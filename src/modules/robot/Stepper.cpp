@@ -263,7 +263,12 @@ void Stepper::trapezoid_generator_tick(void)
         } else if(current_steps_completed <= this->current_block->accelerate_until) {
             // If we are accelerating
             // Increase speed
-            this->trapezoid_adjusted_rate += this->current_block->rate_delta;
+            if(current_steps_completed <= this->current_block->accelerate_until / 2) {
+                this->current_block->linear_rate_delta += this->current_block->linear_rate_delta_increment;
+            } else {
+                this->current_block->linear_rate_delta -= this->current_block->linear_rate_delta_increment;                
+            }
+            this->trapezoid_adjusted_rate += this->current_block->linear_rate_delta;
             if (this->trapezoid_adjusted_rate > this->current_block->nominal_rate ) {
                 this->trapezoid_adjusted_rate = this->current_block->nominal_rate;
             }
@@ -273,10 +278,16 @@ void Stepper::trapezoid_generator_tick(void)
             // Reduce speed
             // NOTE: We will only reduce speed if the result will be > 0. This catches small
             // rounding errors that might leave steps hanging after the last trapezoid tick.
-            if(this->trapezoid_adjusted_rate > this->current_block->rate_delta * 1.5F) {
-                this->trapezoid_adjusted_rate -= this->current_block->rate_delta;
+            if(current_steps_completed <= this->current_block->decelerate_after + this->current_block->accelerate_until / 2) {
+                this->current_block->linear_rate_delta += this->current_block->linear_rate_delta_increment;
             } else {
-                this->trapezoid_adjusted_rate = this->current_block->rate_delta * 1.5F;
+                this->current_block->linear_rate_delta -= this->current_block->linear_rate_delta_increment;                
+            }
+
+            if(this->trapezoid_adjusted_rate > this->current_block->linear_rate_delta * 1.5F) {
+                this->trapezoid_adjusted_rate -= this->current_block->linear_rate_delta;
+            } else {
+                this->trapezoid_adjusted_rate = this->current_block->linear_rate_delta * 1.5F;
             }
             if(this->trapezoid_adjusted_rate < this->current_block->final_rate ) {
                 this->trapezoid_adjusted_rate = this->current_block->final_rate;
