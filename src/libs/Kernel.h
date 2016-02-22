@@ -20,7 +20,6 @@ class Config;
 class Module;
 class Conveyor;
 class SlowTicker;
-class Pauser;
 class SerialConsole;
 class StreamOutputPool;
 class GcodeDispatch;
@@ -46,17 +45,17 @@ class Kernel {
 
         bool is_using_leds() const { return use_leds; }
         bool is_halted() const { return halted; }
+        std::string get_query_string();
 
         // These modules are available to all other modules
         SerialConsole*    serial;
         StreamOutputPool* streams;
-
+        GcodeDispatch*    gcode_dispatch;
         Robot*            robot;
         Stepper*          stepper;
         Planner*          planner;
         Config*           config;
         Conveyor*         conveyor;
-        Pauser*           pauser;
 
         int debug;
         SlowTicker*       slow_ticker;

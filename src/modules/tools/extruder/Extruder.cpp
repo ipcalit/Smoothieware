@@ -82,7 +82,6 @@ Extruder::Extruder( uint16_t config_identifier, bool single )
     this->absolute_mode = true;
     this->milestone_absolute_mode = true;
     this->enabled = false;
-    this->paused = false;
     this->single_config = single;
     this->identifier = config_identifier;
     this->retracted = false;
@@ -125,8 +124,6 @@ void Extruder::on_module_loaded()
     this->register_for_event(ON_BLOCK_END);
     this->register_for_event(ON_GCODE_RECEIVED);
     this->register_for_event(ON_GCODE_EXECUTE);
-    this->register_for_event(ON_PLAY);
-    this->register_for_event(ON_PAUSE);
     this->register_for_event(ON_HALT);
     this->register_for_event(ON_SPEED_CHANGE);
     this->register_for_event(ON_GET_PUBLIC_DATA);
@@ -293,27 +290,13 @@ void Extruder::on_set_public_data(void *argument)
     }
 }
 
-// When the play/pause button is set to pause, or a module calls the ON_PAUSE event
-void Extruder::on_pause(void *argument)
-{
-    this->paused = true;
-    this->stepper_motor->pause();
-}
-
-// When the play/pause button is set to play, or a module calls the ON_PLAY event
-void Extruder::on_play(void *argument)
-{
-    this->paused = false;
-    this->stepper_motor->unpause();
-}
-
 void Extruder::on_gcode_received(void *argument)
 {
     Gcode *gcode = static_cast<Gcode *>(argument);
 
     // M codes most execute immediately, most only execute if enabled
     if (gcode->has_m) {
-        if (gcode->m == 114 && this->enabled) {
+        if (gcode->m == 114 && gcode->subcode == 0 && this->enabled) {
             char buf[16];
             int n = snprintf(buf, sizeof(buf), " E:%1.3f ", this->current_position);
             gcode->txt_after_ok.append(buf, n);
@@ -426,7 +409,7 @@ void Extruder::on_gcode_received(void *argument)
             THEKERNEL->conveyor->append_gcode(gcode);
             THEKERNEL->conveyor->queue_head_block();
 
-        } else if( this->enabled && (gcode->g == 10 || gcode->g == 11) ) { // firmware retract command
+        } else if( this->enabled && (gcode->g == 10 || gcode->g == 11) && !gcode->has_letter('L') ) { // firmware retract command (Ignore if has L parameter that is not for us)
             // check we are in the correct state of retract or unretract
             if(gcode->g == 10 && !retracted) {
                 this->retracted = true;
@@ -561,7 +544,7 @@ void Extruder::on_gcode_execute(void *argument)
             this->target_position += this->travel_distance;
             this->en_pin.set(0);
 
-        } else if (gcode->g == 0 || gcode->g == 1) {
+        } else if (gcode->g <= 3) {
             // Extrusion length from 'G' Gcode
             if( gcode->has_letter('E' )) {
                 // Get relative extrusion distance depending on mode ( in absolute mode we must subtract target_position )
@@ -668,7 +651,7 @@ uint32_t Extruder::rate_increase() const
 void Extruder::acceleration_tick(void)
 {
     // Avoid trying to work when we really shouldn't ( between blocks or re-entry )
-    if(!this->enabled || this->mode != SOLO || this->current_block == NULL || !this->stepper_motor->is_moving() || this->paused ) {
+    if(!this->enabled || this->mode != SOLO || this->current_block == NULL || !this->stepper_motor->is_moving() ) {
         return;
     }
 
@@ -688,7 +671,7 @@ void Extruder::acceleration_tick(void)
 void Extruder::on_speed_change( void *argument )
 {
     // Avoid trying to work when we really shouldn't ( between blocks or re-entry )
-    if(!this->enabled || this->current_block == NULL ||  this->paused || this->mode != FOLLOW || !this->stepper_motor->is_moving()) {
+    if(!this->enabled || this->current_block == NULL || this->mode != FOLLOW || !this->stepper_motor->is_moving()) {
         return;
     }
 
