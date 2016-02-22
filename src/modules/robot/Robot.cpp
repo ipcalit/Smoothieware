@@ -27,7 +27,7 @@ using std::string;
 #include "arm_solutions/CartesianSolution.h"
 #include "arm_solutions/RotatableCartesianSolution.h"
 #include "arm_solutions/LinearDeltaSolution.h"
-#include "arm_solutions/RotatableDeltaSolution.h"
+#include "arm_solutions/RotaryDeltaSolution.h"
 #include "arm_solutions/HBotSolution.h"
 #include "arm_solutions/CoreXZSolution.h"
 #include "arm_solutions/MorganSCARASolution.h"
@@ -57,7 +57,7 @@ using std::string;
 #define  rotatable_cartesian_checksum        CHECKSUM("rotatable_cartesian")
 #define  rostock_checksum                    CHECKSUM("rostock")
 #define  linear_delta_checksum               CHECKSUM("linear_delta")
-#define  rotatable_delta_checksum            CHECKSUM("rotatable_delta")
+#define  rotary_delta_checksum               CHECKSUM("rotary_delta")
 #define  delta_checksum                      CHECKSUM("delta")
 #define  hbot_checksum                       CHECKSUM("hbot")
 #define  corexy_checksum                     CHECKSUM("corexy")
@@ -160,8 +160,8 @@ void Robot::load_config()
     } else if(solution_checksum == rotatable_cartesian_checksum) {
         this->arm_solution = new RotatableCartesianSolution(THEKERNEL->config);
 
-    } else if(solution_checksum == rotatable_delta_checksum) {
-        this->arm_solution = new RotatableDeltaSolution(THEKERNEL->config);
+    } else if(solution_checksum == rotary_delta_checksum) {
+        this->arm_solution = new RotaryDeltaSolution(THEKERNEL->config);
 
     } else if(solution_checksum == morgan_checksum) {
         this->arm_solution = new MorganSCARASolution(THEKERNEL->config);
@@ -246,7 +246,7 @@ void Robot::pop_state()
 std::vector<Robot::wcs_t> Robot::get_wcs_state() const
 {
     std::vector<wcs_t> v;
-    v.push_back(wcs_t(current_wcs, k_max_wcs, 0));
+    v.push_back(wcs_t(current_wcs, MAX_WCS, 0));
     for(auto& i : wcs_offsets) {
         v.push_back(i);
     }
@@ -364,7 +364,7 @@ void Robot::on_gcode_received(void *argument)
                     size_t n = gcode->get_uint('P');
                     if(n == 0) n = current_wcs; // set current coordinate system
                     else --n;
-                    if(n < k_max_wcs) {
+                    if(n < MAX_WCS) {
                         float x, y, z;
                         std::tie(x, y, z) = wcs_offsets[n];
                         if(gcode->get_int('L') == 20) {
@@ -405,7 +405,7 @@ void Robot::on_gcode_received(void *argument)
                 current_wcs = gcode->g - 54;
                 if(gcode->g == 59 && gcode->subcode > 0) {
                     current_wcs += gcode->subcode;
-                    if(current_wcs >= k_max_wcs) current_wcs = k_max_wcs - 1;
+                    if(current_wcs >= MAX_WCS) current_wcs = MAX_WCS - 1;
                 }
                 break;
 
@@ -444,6 +444,7 @@ void Robot::on_gcode_received(void *argument)
     } else if( gcode->has_m) {
         switch( gcode->m ) {
             case 2: // M2 end of program
+            case 30: // M30 end of program
                 current_wcs = 0;
                 absolute_mode = true;
                 break;
@@ -455,10 +456,8 @@ void Robot::on_gcode_received(void *argument)
                     actuators[1]->change_steps_per_mm(this->to_millimeters(gcode->get_value('Y')));
                 if (gcode->has_letter('Z'))
                     actuators[2]->change_steps_per_mm(this->to_millimeters(gcode->get_value('Z')));
-                if (gcode->has_letter('F'))
-                    seconds_per_minute = gcode->get_value('F');
 
-                gcode->stream->printf("X:%g Y:%g Z:%g F:%g ", actuators[0]->steps_per_mm, actuators[1]->steps_per_mm, actuators[2]->steps_per_mm, seconds_per_minute);
+                gcode->stream->printf("X:%f Y:%f Z:%f ", actuators[0]->steps_per_mm, actuators[1]->steps_per_mm, actuators[2]->steps_per_mm);
                 gcode->add_nl = true;
                 check_max_actuator_speeds();
                 return;
@@ -768,22 +767,39 @@ void Robot::reset_axis_position(float position, int axis)
     reset_axis_position(last_milestone[X_AXIS], last_milestone[Y_AXIS], last_milestone[Z_AXIS]);
 }
 
+// similar to reset_axis_position but directly sets the actuator positions in actuators units (eg mm for cartesian, degrees for rotary delta)
+// then sets the axis postions to match. currently only called from G28.4 and M306 in Endstops.cpp
+void Robot::reset_actuator_position(float a, float b, float c)
+{
+    // NOTE this does NOT support the multiple actuator HACK. so if there are more than 3 actuators this will probably not work
+    if(!isnan(a)) actuators[0]->change_last_milestone(a);
+    if(!isnan(b)) actuators[1]->change_last_milestone(b);
+    if(!isnan(c)) actuators[2]->change_last_milestone(c);
+
+    // now correct axis positions then recorrect actuator to account for rounding
+    reset_position_from_current_actuator_position();
+}
+
 // Use FK to find out where actuator is and reset to match
 void Robot::reset_position_from_current_actuator_position()
 {
     ActuatorCoordinates actuator_pos;
     for (size_t i = 0; i < actuators.size(); i++) {
+        // NOTE actuator::current_position is curently NOT the same as actuator::last_milestone after an abrupt abort
         actuator_pos[i] = actuators[i]->get_current_position();
     }
+
+    // discover machine position from where actuators actually are
     arm_solution->actuator_to_cartesian(actuator_pos, last_machine_position);
     // FIXME problem is this includes any compensation transform, and without an inverse compensation we cannot get a correct last_milestone
     memcpy(last_milestone, last_machine_position, sizeof last_milestone);
 
-    // now reset actuator correctly, NOTE this may lose a little precision
-    // NOTE I do not recall why this was necessary, maybe to correct for small errors in FK
-    // arm_solution->cartesian_to_actuator(last_machine_position, actuator_pos);
-    // for (size_t i = 0; i < actuators.size(); i++)
-    //     actuators[i]->change_last_milestone(actuator_pos[i]);
+    // now reset actuator::last_milestone, NOTE this may lose a little precision as FK is not always entirely accurate.
+    // NOTE This is required to sync the machine position with the actuator position, we do a somewhat redundant cartesian_to_actuator() call
+    // to get everything in perfect sync.
+    arm_solution->cartesian_to_actuator(last_machine_position, actuator_pos);
+    for (size_t i = 0; i < actuators.size(); i++)
+        actuators[i]->change_last_milestone(actuator_pos[i]);
 }
 
 // Convert target (in machine coordinates) from millimeters to steps, and append this to the planner

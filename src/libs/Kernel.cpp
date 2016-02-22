@@ -25,6 +25,12 @@
 #include "modules/robot/Stepper.h"
 #include "modules/robot/Conveyor.h"
 #include "StepperMotor.h"
+#include "BaseSolution.h"
+#include "EndstopsPublicAccess.h"
+#include "Configurator.h"
+#include "SimpleShell.h"
+
+#include "platform_memory.h"
 
 #include <malloc.h>
 #include <array>
@@ -37,12 +43,15 @@
 #define microseconds_per_step_pulse_checksum        CHECKSUM("microseconds_per_step_pulse")
 #define acceleration_ticks_per_second_checksum      CHECKSUM("acceleration_ticks_per_second")
 #define disable_leds_checksum                       CHECKSUM("leds_disable")
+#define grbl_mode_checksum                          CHECKSUM("grbl_mode")
+#define ok_per_line_checksum                        CHECKSUM("ok_per_line")
 
 Kernel* Kernel::instance;
 
 // The kernel is the central point in Smoothie : it stores modules, and handles event calls
 Kernel::Kernel(){
     halted= false;
+    feed_hold= false;
 
     instance= this; // setup the Singleton instance of the kernel
 
@@ -71,28 +80,29 @@ Kernel::Kernel(){
 #if MRI_ENABLE != 0
     switch( __mriPlatform_CommUartIndex() ) {
         case 0:
-            this->serial = new SerialConsole(USBTX, USBRX, this->config->value(uart0_checksum,baud_rate_setting_checksum)->by_default(DEFAULT_SERIAL_BAUD_RATE)->as_number());
+            this->serial = new(AHB0) SerialConsole(USBTX, USBRX, this->config->value(uart0_checksum,baud_rate_setting_checksum)->by_default(DEFAULT_SERIAL_BAUD_RATE)->as_number());
             break;
         case 1:
-            this->serial = new SerialConsole(  p13,   p14, this->config->value(uart0_checksum,baud_rate_setting_checksum)->by_default(DEFAULT_SERIAL_BAUD_RATE)->as_number());
+            this->serial = new(AHB0) SerialConsole(  p13,   p14, this->config->value(uart0_checksum,baud_rate_setting_checksum)->by_default(DEFAULT_SERIAL_BAUD_RATE)->as_number());
             break;
         case 2:
-            this->serial = new SerialConsole(  p28,   p27, this->config->value(uart0_checksum,baud_rate_setting_checksum)->by_default(DEFAULT_SERIAL_BAUD_RATE)->as_number());
+            this->serial = new(AHB0) SerialConsole(  p28,   p27, this->config->value(uart0_checksum,baud_rate_setting_checksum)->by_default(DEFAULT_SERIAL_BAUD_RATE)->as_number());
             break;
         case 3:
-            this->serial = new SerialConsole(   p9,   p10, this->config->value(uart0_checksum,baud_rate_setting_checksum)->by_default(DEFAULT_SERIAL_BAUD_RATE)->as_number());
+            this->serial = new(AHB0) SerialConsole(   p9,   p10, this->config->value(uart0_checksum,baud_rate_setting_checksum)->by_default(DEFAULT_SERIAL_BAUD_RATE)->as_number());
             break;
     }
 #endif
     // default
     if(this->serial == NULL) {
-        this->serial = new SerialConsole(USBTX, USBRX, this->config->value(uart0_checksum,baud_rate_setting_checksum)->by_default(DEFAULT_SERIAL_BAUD_RATE)->as_number());
+        this->serial = new(AHB0) SerialConsole(USBTX, USBRX, this->config->value(uart0_checksum,baud_rate_setting_checksum)->by_default(DEFAULT_SERIAL_BAUD_RATE)->as_number());
     }
 
     //some boards don't have leds.. TOO BAD!
     this->use_leds= !this->config->value( disable_leds_checksum )->by_default(false)->as_bool();
+    this->grbl_mode= this->config->value( grbl_mode_checksum )->by_default(false)->as_bool();
+    this->ok_per_line= this->config->value( ok_per_line_checksum )->by_default(true)->as_bool();
 
-    this->add_module( this->config );
     this->add_module( this->serial );
 
     // HAL stuff
@@ -142,31 +152,52 @@ Kernel::Kernel(){
     this->add_module( this->robot          = new Robot()         );
     this->add_module( this->stepper        = new Stepper()       );
     this->add_module( this->conveyor       = new Conveyor()      );
+    this->add_module( this->simpleshell    = new SimpleShell()   );
 
     this->planner = new Planner();
-
+    this->configurator   = new Configurator();
 }
 
 // return a GRBL-like query string for serial ?
 std::string Kernel::get_query_string()
 {
     std::string str;
+    bool homing;
+    bool ok = PublicData::get_value(endstops_checksum, get_homing_status_checksum, 0, &homing);
+    if(!ok) homing= false;
+
     str.append("<");
     if(halted) {
         str.append("Alarm,");
+    }else if(homing) {
+        str.append("Home,");
+    }else if(feed_hold) {
+        str.append("Hold,");
     }else if(this->conveyor->is_queue_empty()) {
         str.append("Idle,");
     }else{
         str.append("Run,");
     }
 
+    // get real time current actuator position in mm
+    ActuatorCoordinates current_position{
+        robot->actuators[X_AXIS]->get_current_position(),
+        robot->actuators[Y_AXIS]->get_current_position(),
+        robot->actuators[Z_AXIS]->get_current_position()
+    };
+
+    // get machine position from the actuator position using FK
+    float mpos[3];
+    robot->arm_solution->actuator_to_cartesian(current_position, mpos);
+
     char buf[64];
-    size_t n= snprintf(buf, sizeof(buf), "%f,%f,%f,", this->robot->actuators[X_AXIS]->get_current_position(), this->robot->actuators[Y_AXIS]->get_current_position(), this->robot->actuators[Z_AXIS]->get_current_position());
+    // machine position
+    size_t n= snprintf(buf, sizeof(buf), "%f,%f,%f,", mpos[0], mpos[1], mpos[2]);
     str.append("MPos:").append(buf, n);
 
-    float pos[3];
-    this->robot->get_axis_position(pos);
-    n= snprintf(buf, sizeof(buf), "%f,%f,%f", pos[0], pos[1], pos[2]);
+    // work space position
+    Robot::wcs_t pos= robot->mcs2wcs(mpos);
+    n= snprintf(buf, sizeof(buf), "%f,%f,%f", robot->from_millimeters(std::get<X_AXIS>(pos)), robot->from_millimeters(std::get<Y_AXIS>(pos)), robot->from_millimeters(std::get<Z_AXIS>(pos)));
     str.append("WPos:").append(buf, n);
     str.append(">\r\n");
     return str;

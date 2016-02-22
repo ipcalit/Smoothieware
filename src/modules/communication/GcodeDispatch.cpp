@@ -65,6 +65,16 @@ try_again:
 
     char first_char = possible_command[0];
     unsigned int n;
+
+    if(first_char == '$') {
+        // ignore as simpleshell will handle it
+        return;
+
+    }else if(islower(first_char)) {
+        // ignore all lowercase as they are simpleshell commands
+        return;
+    }
+
     if ( first_char == 'G' || first_char == 'M' || first_char == 'T' || first_char == 'N' ) {
 
         //Get linenumber
@@ -128,8 +138,8 @@ try_again:
                 }
 
 
-                if(!uploading) {
-                    //Prepare gcode for dispatch
+                if(!uploading || upload_stream != new_message.stream) {
+                    // Prepare gcode for dispatch
                     Gcode *gcode = new Gcode(single_command, new_message.stream);
 
                     if(THEKERNEL->is_halted()) {
@@ -141,7 +151,12 @@ try_again:
 
                         }else if(!is_allowed_mcode(gcode->m)) {
                             // ignore everything, return error string to host
-                            new_message.stream->printf("!!\r\n");
+                            if(THEKERNEL->is_grbl_mode()) {
+                                new_message.stream->printf("error:Alarm lock\n");
+
+                            }else{
+                                new_message.stream->printf("!!\r\n");
+                            }
                             delete gcode;
                             continue;
                         }
@@ -199,14 +214,29 @@ try_again:
                                 } else {
                                     new_message.stream->printf("open failed, File: %s.\r\nok\r\n", this->upload_filename.c_str());
                                 }
+
+                                // only save stuff from this stream
+                                upload_stream= new_message.stream;
+
                                 //printf("Start Uploading file: %s, %p\n", upload_filename.c_str(), upload_fd);
                                 continue;
 
+                            case 2: case 30: // end of program
+                                {
+                                    modal_group_1= 1; // set to G1
+                                    // issue M5 and M9 in case spindle and coolant are being used
+                                    Gcode gc1("M5", &StreamOutput::NullStream);
+                                    THEKERNEL->call_event(ON_GCODE_RECEIVED, &gc1);
+                                    Gcode gc2("M9", &StreamOutput::NullStream);
+                                    THEKERNEL->call_event(ON_GCODE_RECEIVED, &gc2);
+                                }
+                                break;
+
                             case 112: // emergency stop, do the best we can with this
-                                // TODO this really needs to be handled out-of-band
+                                // this is also handled out-of-band (it is now with ^X in the serial driver)
                                 // disables heaters and motors, ignores further incoming Gcode and clears block queue
                                 THEKERNEL->call_event(ON_HALT, nullptr);
-                                THEKERNEL->streams->printf("ok Emergency Stop Requested - reset or M999 required to continue\r\n");
+                                THEKERNEL->streams->printf("ok Emergency Stop Requested - reset or M999 required to exit HALT state\r\n");
                                 delete gcode;
                                 return;
 
@@ -219,7 +249,7 @@ try_again:
                                 return;
                             }
 
-                            case 1000: // M1000 is a special comanad that will pass thru the raw lowercased command to the simpleshell (for hosts that do not allow such things)
+                            case 1000: // M1000 is a special command that will pass thru the raw lowercased command to the simpleshell (for hosts that do not allow such things)
                             {
                                 // reconstruct entire command line again
                                 string str= single_command.substr(5) + possible_command;
@@ -292,19 +322,29 @@ try_again:
                     if(!gcode->txt_after_ok.empty()) {
                         new_message.stream->printf("ok %s\r\n", gcode->txt_after_ok.c_str());
                         gcode->txt_after_ok.clear();
-                    } else
-                        new_message.stream->printf("ok\r\n");
+
+                    } else {
+                        if(THEKERNEL->is_ok_per_line() || THEKERNEL->is_grbl_mode()) {
+                            // only send ok once per line if this is a multi g code line send ok on the last one
+                            if(possible_command.empty())
+                                new_message.stream->printf("ok\r\n");
+                        } else {
+                            // maybe should do the above for all hosts?
+                            new_message.stream->printf("ok\r\n");
+                        }
+                    }
 
                     delete gcode;
 
                 } else {
-                    // we are uploading a file so save it
+                    // we are uploading and it is the upload stream so so save it
                     if(single_command.substr(0, 3) == "M29") {
                         // done uploading, close file
                         fclose(upload_fd);
                         upload_fd = NULL;
                         uploading = false;
                         upload_filename.clear();
+                        upload_stream= nullptr;
                         new_message.stream->printf("Done saving file.\r\nok\r\n");
                         continue;
                     }
