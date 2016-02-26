@@ -300,7 +300,7 @@ void Stepper::set_step_events_per_second( float steps_per_second )
     // Instruct the stepper motors
     for (size_t i = 0; i < THEKERNEL->robot->actuators.size(); i++) {
         if (THEKERNEL->robot->actuators[i]->moving) {
-            THEKERNEL->robot->actuators[i]->set_speed(isps * this->current_block->steps[i]);
+            THEKERNEL->robot->actuators[i]->set_step_rate(isps * this->current_block->steps[i]);
         }
     }
 
