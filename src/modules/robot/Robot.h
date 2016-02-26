@@ -61,12 +61,14 @@ class Robot : public Module {
         std::function<void(float[3])> compensationTransform;
 
         // Workspace coordinate systems
-        wcs_t mcs2wcs(const float *pos) const;
+        wcs_t mcs2wcs(const wcs_t &pos) const;
+        wcs_t mcs2wcs(const float *pos) const { return mcs2wcs(wcs_t(pos[0], pos[1], pos[2])); }
 
         struct {
             bool inch_mode:1;                                 // true for inch mode, false for millimeter mode ( default )
             bool absolute_mode:1;                             // true for absolute mode ( default ), false for relative mode
             bool next_command_is_MCS:1;                       // set by G53
+            bool disable_segmentation:1;                      // set to disable segmentation
             uint8_t plane_axis_0:2;                           // Current plane ( XY, XZ, YZ )
             uint8_t plane_axis_1:2;
             uint8_t plane_axis_2:2;
